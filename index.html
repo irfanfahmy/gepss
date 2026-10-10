@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HydroGuard AI — Live CSV & 3D Command Console</title>
+  
+  <!-- Library PapaParse untuk baca CSV -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0a0a12;
+      font-family: 'Segoe UI', Roboto, sans-serif;
+      color: #00ffcc;
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+    }
+
+    /* Bahagian Kiri: Figma Viewer */
+    #figma-container {
+      flex: 1;
+      height: 100%;
+      background: #000;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ANIMASI FADE & SCALE PADA IFRAME FIGMA */
+    #figma-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      transition: opacity 0.35s ease-in-out, transform 0.35s ease-in-out, filter 0.35s ease-in-out;
+      opacity: 1;
+      transform: scale(1);
+      filter: blur(0px);
+    }
+
+    /* Kelas animasi semasa pertukaran skrin */
+    .iframe-switching {
+      opacity: 0.15 !important;
+      transform: scale(0.97) !important;
+      filter: blur(4px) !important;
+    }
+
+    /* Bahagian Kanan: Live CSV Telemetry HUD */
+    #hud-panel {
+      width: 400px;
+      min-width: 380px;
+      background: rgba(16, 24, 32, 0.95);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      overflow-y: auto;
+      border-left: 2px solid rgba(0, 255, 204, 0.2);
+    }
+
+    h2 { margin: 0; color: #00ffcc; font-size: 20px; letter-spacing: 1px; }
+    .sub-title { font-size: 12px; color: #aaa; margin-top: -10px; margin-bottom: 5px; }
+
+    label { font-size: 12px; font-weight: bold; color: #ffffff; }
+
+    select {
+      background: #0a0a12;
+      color: #00ffcc;
+      border: 1px solid #00ffcc;
+      padding: 10px;
+      border-radius: 6px;
+      width: 100%;
+      font-weight: bold;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .card {
+      background: #151d2a;
+      border: 1px solid #00ffcc44;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 0 10px rgba(0, 255, 204, 0.1);
+      transition: border-color 0.3s ease;
+    }
+
+    .card-alert {
+      background: #2a0813;
+      border: 1px solid #ff0055;
+      color: #ffaaaa;
+      box-shadow: 0 0 15px rgba(255, 0, 85, 0.3);
+    }
+
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      margin: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      padding-bottom: 4px;
+    }
+
+    .metric-val { font-weight: bold; color: #ffffff; }
+    .highlight-val { color: #ffcc00; font-weight: bold; }
+
+    .btn-report {
+      background: linear-gradient(135deg, #0088ff, #00ffcc);
+      color: #000;
+      border: none;
+      padding: 12px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 10px;
+      width: 100%;
+      box-shadow: 0 0 10px rgba(0, 255, 204, 0.3);
+      transition: transform 0.1s ease;
+    }
+
+    .btn-failover {
+      background: linear-gradient(135deg, #ff0055, #ff5500);
+      color: white;
+      border: none;
+      padding: 12px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 8px;
+      width: 100%;
+      box-shadow: 0 0 10px rgba(255, 0, 85, 0.4);
+      transition: transform 0.1s ease;
+    }
+
+    .btn-report:active, .btn-failover:active { transform: scale(0.97); }
+
+    .pillar-box { font-size: 12px; line-height: 1.5; margin-top: 8px; }
+    .pillar-box b { color: #ff5577; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. FIGMA INTERACTIVE EMBED -->
+  <div id="figma-container">
+    <iframe id="figma-iframe" src="" allowfullscreen></iframe>
+  </div>
+
+  <!-- 2. LIVE CSV DATA HUD PANEL -->
+  <div id="hud-panel">
+    <div>
+      <h2>🛡️ HydroGuard AI</h2>
+      <p class="sub-title">Live CSV Telemetry Reader & Track 1 Diagnostic</p>
+    </div>
+
+    <div>
+      <label for="csv-row-selector">📂 Select Telemetry Stream (CSV Row):</label>
+      <select id="csv-row-selector" onchange="updateHUD()"></select>
+    </div>
+
+    <!-- PAPARAN BACAAN SENSOR LIVE -->
+    <div class="card">
+      <h4 style="margin-top:0; color:#00ffcc;">📊 Live Sensor Telemetry</h4>
+      <div class="metric-row"><span>Ultrasonic Freq:</span><span id="val-ultrasonic" class="highlight-val">-</span></div>
+      <div class="metric-row"><span>GPU Temp:</span><span id="val-temp" class="metric-val">-</span></div>
+      <div class="metric-row"><span>Coolant Pressure:</span><span id="val-pressure" class="metric-val">-</span></div>
+      <div class="metric-row"><span>Pump RPM:</span><span id="val-rpm" class="metric-val">-</span></div>
+      <div class="metric-row"><span>Coolant Viscosity:</span><span id="val-viscosity" class="metric-val">-</span></div>
+      <div class="metric-row"><span>Vibration:</span><span id="val-vibration" class="metric-val">-</span></div>
+    </div>
+
+    <!-- DIAGNOSIS TRACK 1 -->
+    <div id="incident-card" class="card card-alert">
+      <h4 id="status-title" style="margin-top:0; color:#ff0055;">🚨 DIAGNOSIS</h4>
+      
+      <div class="pillar-box">
+        <p style="margin: 4px 0;"><b>1. Detect:</b> <span id="track-detect">-</span></p>
+        <p style="margin: 4px 0;"><b>2. Categorize:</b> <span id="track-cat">-</span></p>
+        <p style="margin: 4px 0;"><b>3. Prioritize:</b> <span id="track-prio">-</span></p>
+        <p style="margin: 4px 0;"><b>4. Explain (XAI):</b> <span id="track-explain">-</span></p>
+      </div>
+
+      <button id="report-btn" class="btn-report" onclick="viewErrorReport()">🔍 INSPECT ERROR REPORT</button>
+      <button id="failover-btn" class="btn-failover" onclick="triggerFailover()">⚡ EXECUTE DYNAMIC FAILOVER</button>
+    </div>
+  </div>
+
+  <script>
+    const rawFigmaUrls = {
+      healthy:  "https://www.figma.com/proto/yC5IebWrnfEw9FKJJvjhB0/Untitled--Copy-?node-id=2-18260&t=54CPYcMp0NUS19fq-1",
+      alert:    "https://www.figma.com/proto/yC5IebWrnfEw9FKJJvjhB0/Untitled--Copy-?node-id=2-18647&t=54CPYcMp0NUS19fq-1",
+      report:   "https://www.figma.com/proto/yC5IebWrnfEw9FKJJvjhB0/Untitled--Copy-?node-id=2-18647&t=54CPYcMp0NUS19fq-1",
+      resolved: "https://www.figma.com/proto/yC5IebWrnfEw9FKJJvjhB0/Untitled--Copy-?node-id=2-19480&t=54CPYcMp0NUS19fq-1"
+    };
+
+    function toEmbedUrl(url) {
+      if (!url) return "";
+      if (url.includes("embed.figma.com") || url.includes("figma.com/embed")) return url;
+      return "https://www.figma.com/embed?embed_host=share&url=" + encodeURIComponent(url);
+    }
+
+    // FUNGSI ANIMASI TUKAR IFRAME SMOOTH
+    function setFigmaIframeSmooth(newUrl) {
+      const figmaIframe = document.getElementById("figma-iframe");
+      if (!newUrl || figmaIframe.src === newUrl) return;
+
+      // Add class animasi blur/fade
+      figmaIframe.classList.add("iframe-switching");
+
+      setTimeout(() => {
+        figmaIframe.src = newUrl;
+        
+        // Remove class animasi selepas iframe siap load
+        figmaIframe.onload = () => {
+          figmaIframe.classList.remove("iframe-switching");
+        };
+      }, 200);
+    }
+
+    const fallbackData = [
+      { Target_Class: "1", Ultrasonic_Noise_Freq_kHz: "42.5", GPU_Temp_C: "69.2", Coolant_Pressure_Bar: "2.10", Pump_RPM: "3200", Coolant_Viscosity_cSt: "4.50", Vibration_mm_s: "1.2" },
+      { Target_Class: "0", Ultrasonic_Noise_Freq_kHz: "18.2", GPU_Temp_C: "64.0", Coolant_Pressure_Bar: "2.50", Pump_RPM: "3000", Coolant_Viscosity_cSt: "5.10", Vibration_mm_s: "0.8" },
+      { Target_Class: "2", Ultrasonic_Noise_Freq_kHz: "22.4", GPU_Temp_C: "74.8", Coolant_Pressure_Bar: "1.85", Pump_RPM: "2850", Coolant_Viscosity_cSt: "2.10", Vibration_mm_s: "1.5" }
+    ];
+
+    let csvData = [];
+
+    Papa.parse("hydroguard_telemetry.csv", {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        if (results.data && results.data.length > 0 && results.data[0].Target_Class !== undefined) {
+          csvData = results.data;
+        } else {
+          csvData = fallbackData;
+        }
+        populateDropdown();
+      },
+      error: function(err) {
+        csvData = fallbackData;
+        populateDropdown();
+      }
+    });
+
+    function populateDropdown() {
+      const selector = document.getElementById("csv-row-selector");
+      selector.innerHTML = "";
+
+      csvData.forEach((row, index) => {
+        if (index < 40) {
+          let option = document.createElement("option");
+          option.value = index;
+          
+          let target = parseInt(row.Target_Class || row.target_class || 0);
+          let label = "";
+          if (target === 1) label = "🚨 Row " + (index + 1) + ": Micro-Cavitation Anomaly";
+          else if (target === 0) label = "✅ Row " + (index + 1) + ": Normal Operation";
+          else label = "⚠️ Row " + (index + 1) + ": Maintenance Alert";
+
+          option.text = label;
+          selector.appendChild(option);
+        }
+      });
+
+      updateHUD();
+    }
+
+    function updateHUD() {
+      const idx = document.getElementById("csv-row-selector").value;
+      const row = csvData[idx] || fallbackData[0];
+
+      // Update nilai sensor
+      const freq = row.Ultrasonic_Noise_Freq_kHz || "42.5";
+      const temp = row.GPU_Temp_C || "69.0";
+      const pressure = row.Coolant_Pressure_Bar || "2.1";
+      const rpm = row.Pump_RPM || "3000";
+      const viscosity = row.Coolant_Viscosity_cSt || "4.5";
+      const vibration = row.Vibration_mm_s || "1.2";
+
+      document.getElementById("val-ultrasonic").innerText = freq + " kHz";
+      document.getElementById("val-temp").innerText = temp + " °C";
+      document.getElementById("val-pressure").innerText = pressure + " Bar";
+      document.getElementById("val-rpm").innerText = rpm + " RPM";
+      document.getElementById("val-viscosity").innerText = viscosity + " cSt";
+      document.getElementById("val-vibration").innerText = vibration + " mm/s";
+
+      const target = parseInt(row.Target_Class || 1);
+      const incidentCard = document.getElementById("incident-card");
+      const reportBtn = document.getElementById("report-btn");
+      const failoverBtn = document.getElementById("failover-btn");
+
+      if (target === 1) { // Micro-Cavitation Critical
+        setFigmaIframeSmooth(toEmbedUrl(rawFigmaUrls.alert));
+
+        incidentCard.className = "card card-alert";
+        document.getElementById("status-title").innerText = "🚨 CRITICAL: MICRO-CAVITATION";
+        document.getElementById("status-title").style.color = "#ff0055";
+        document.getElementById("track-detect").innerText = `Ultrasonic frequency spike at ${freq} kHz.`;
+        document.getElementById("track-cat").innerText = "Micro-Cavitation Bubble Trapping";
+        document.getElementById("track-prio").innerText = "HIGH ($30,000 GPU SLA Risk)";
+        document.getElementById("track-explain").innerText = "Acoustic anomaly detected BEFORE GPU thermal threshold breach.";
+        
+        reportBtn.style.display = "block";
+        failoverBtn.style.display = "block";
+
+      } else if (target === 0) { // Normal
+        setFigmaIframeSmooth(toEmbedUrl(rawFigmaUrls.healthy));
+
+        incidentCard.className = "card";
+        document.getElementById("status-title").innerText = "✅ SYSTEM HEALTHY";
+        document.getElementById("status-title").style.color = "#00ffcc";
+        document.getElementById("track-detect").innerText = "All sensors within nominal limits.";
+        document.getElementById("track-cat").innerText = "None (Healthy)";
+        document.getElementById("track-prio").innerText = "LOW (Routine Operations)";
+        document.getElementById("track-explain").innerText = "Baseline acoustic and thermal match nominal profiles.";
+        
+        reportBtn.style.display = "none";
+        failoverBtn.style.display = "none";
+
+      } else { // Warning / Degraded
+        setFigmaIframeSmooth(toEmbedUrl(rawFigmaUrls.alert));
+
+        incidentCard.className = "card card-alert";
+        document.getElementById("status-title").innerText = "⚠️ SYSTEM WARNING";
+        document.getElementById("status-title").style.color = "#ffcc00";
+        document.getElementById("track-detect").innerText = "Thermal / Viscosity degradation detected.";
+        document.getElementById("track-cat").innerText = "Fluid / Mechanical Wear";
+        document.getElementById("track-prio").innerText = "MEDIUM (Schedule Maintenance)";
+        document.getElementById("track-explain").innerText = "Elevated thermal resistance observed in cooling loop.";
+        
+        reportBtn.style.display = "block";
+        failoverBtn.style.display = "block";
+      }
+    }
+
+    function viewErrorReport() {
+      setFigmaIframeSmooth(toEmbedUrl(rawFigmaUrls.report));
+    }
+
+    function triggerFailover() {
+      setFigmaIframeSmooth(toEmbedUrl(rawFigmaUrls.resolved));
+
+      alert("✅ SUCCESS: Workload Migrated to Rack G-08!\n\nSaved $30,000 potential GPU damage.");
+    }
+  </script>
+</body>
+</html>
